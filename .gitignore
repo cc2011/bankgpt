@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Secrets / local config (contains HATCHET_CLIENT_TOKEN)
+.env
+.env.local
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
