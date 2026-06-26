@@ -243,6 +243,9 @@ config.py        Loads .env via python-dotenv; requires HATCHET_CLIENT_TOKEN
 worker.py        LOCAL_MODEL = "deepseek-r1:1.5b"  (swap to llama3.2, mistral, ...)
                  EVENT_LOOKBACK = 1 hour
                  execution_timeout = 3 minutes (buy-car)
+                 Ollama AsyncClient → http://127.0.0.1:11434 (must be running)
+.env             HATCHET_CLIENT_TOKEN (required)
+                 HATCHET_CLIENT_TLS_STRATEGY=none (required for local Hatchet)
 ```
 
 Dependencies (`requirements.txt`): fastapi, uvicorn[standard], hatchet-sdk, ollama,
@@ -250,14 +253,84 @@ python-dotenv, pydantic.
 
 ---
 
-## Running
+## Setup
+
+This stack has four moving parts that all run locally: the **Hatchet engine**
+(Docker), the **Ollama** LLM server, the **worker**, and the **FastAPI** API.
+
+### 1. Prerequisites
 
 ```
+• Python 3.11+
+• Docker (for the local self-hosted Hatchet engine)
+• Ollama (local LLM runtime)  — https://ollama.com/download
+```
+
+### 2. Python environment + dependencies
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+### 3. Local Hatchet engine (self-hosted, replaces Hatchet Cloud)
+
+```bash
+# Start Postgres + hatchet-lite (dashboard on :8888, gRPC on :7077)
+docker compose -f docker-compose.hatchet.yml up -d
+
+# Open the dashboard, create a tenant, generate an API token:
+#   http://localhost:8888   (login: admin@example.com / Admin123!!)
+#   Settings → API Tokens → generate
+```
+
+Copy `.env.example` to `.env` and paste the token. Local Hatchet runs gRPC
+without TLS, so the TLS strategy must be disabled:
+
+```bash
+cp .env.example .env
+# then edit .env:
+#   HATCHET_CLIENT_TOKEN="<token from the local dashboard>"
+#   HATCHET_CLIENT_TLS_STRATEGY=none
+```
+
+### 4. Ollama (powers the `research-car` task)
+
+The `research-car` task calls a local Ollama server at `127.0.0.1:11434`. If
+Ollama isn't running (or the model isn't pulled), `buy-car` fails at its first
+step with `ConnectionError: Failed to connect to Ollama`.
+
+```bash
+# Install (macOS): brew install ollama   — or download from ollama.com/download
+
+# Start the Ollama server (leave running, or use the macOS app)
+ollama serve
+
+# Pull the model used by worker.py (LOCAL_MODEL = "deepseek-r1:1.5b")
+ollama pull deepseek-r1:1.5b
+
+# Verify it responds
+curl http://127.0.0.1:11434/api/tags
+```
+
+To use a different model, change `LOCAL_MODEL` in `worker.py` (e.g. `llama3.2`,
+`mistral`) and `ollama pull` that model.
+
+---
+
+## Running
+
+With the Hatchet engine and Ollama both up:
+
+```bash
 # Terminal 1 — start the Hatchet worker (registers all tasks)
+source venv/bin/activate
 python worker.py
 
 # Terminal 2 — start the API
-python main.py          # uvicorn on 127.0.0.1:8000
+source venv/bin/activate
+python main.py          # uvicorn on 127.0.0.1:8001
 
 # Drive the workflow
 curl -X POST 127.0.0.1:8001/purchase/start \
@@ -270,6 +343,9 @@ curl -X POST 127.0.0.1:8001/mock/dealer-accept \
 curl -X POST 127.0.0.1:8001/mock/bank-approve \
   -d '{"purchase_id":"<id>","final_apr":6.5}'
 ```
+
+> Ports at a glance: Hatchet dashboard `:8888`, Hatchet gRPC `:7077`,
+> FastAPI `:8001`, Ollama `:11434`.
 
 ---
 
